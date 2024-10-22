@@ -99,13 +99,13 @@ services:
       - ollama-network
       - traefik-network
     # Uncomment to enable NVIDIA GPU support
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: ${OLLAMA_GPU_COUNT}
-    #           capabilities: [gpu]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${OLLAMA_GPU_COUNT}
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "--version"]
       interval: 10s
@@ -123,6 +123,8 @@ services:
     depends_on:
       traefik:
         condition: service_healthy
+    ports:
+      - "11434:11434"
 
   traefik:
     image: ${TRAEFIK_IMAGE_TAG}
