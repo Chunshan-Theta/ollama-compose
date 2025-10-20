@@ -1,0 +1,154 @@
+networks:
+  traefik-network:
+    external: true
+  ollama-network:
+    external: true
+
+volumes:
+  webui-data:
+  ollama-data:
+  traefik-certificates:
+
+services:
+  webui:
+    image: ${WEBUI_IMAGE_TAG}
+    volumes:
+      - webui-data:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    networks:
+      - ollama-network
+      - traefik-network
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/8080' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.webui.rule=Host(`${OLLAMA_HOSTNAME}`)"
+      - "traefik.http.routers.webui.service=webui"
+      - "traefik.http.routers.webui.entrypoints=websecure"
+      - "traefik.http.services.webui.loadbalancer.server.port=8080"
+      - "traefik.http.routers.webui.tls=true"
+      - "traefik.http.routers.webui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.webui.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.webui.middlewares=compresstraefik"
+      - "traefik.http.middlewares.compresstraefik.compress=true"
+      - "traefik.docker.network=traefik-network"
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+      traefik:
+        condition: service_healthy
+
+  ollama:
+    image: ${OLLAMA_IMAGE_TAG}
+    entrypoint: ["/usr/bin/bash", "/entrypoint.sh"]
+    volumes:
+      - ollama-data:/root/.ollama
+      - ./entrypoint.sh:/entrypoint.sh
+    environment:
+      MODELS: ${OLLAMA_INSTALL_MODELS}
+    networks:
+      - ollama-network
+      - traefik-network
+    # Uncomment to enable NVIDIA GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${OLLAMA_GPU_COUNT}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+    #   - "traefik.tcp.routers.ollama.rule=HostSNI(`*`)"
+    #   - "traefik.tcp.routers.ollama.service=ollama"
+    #   - "traefik.tcp.routers.ollama.entrypoints=ollama"
+    #   - "traefik.tcp.services.ollama.loadbalancer.server.port=11434"
+      - "traefik.http.routers.ollama.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.ollama.priority=100"
+    #   - "traefik.http.routers.ollama.service=ollama"
+      - "traefik.http.routers.ollama.entrypoints=web"
+      - "traefik.http.services.ollama.loadbalancer.server.port=11434"
+    #   - "traefik.http.routers.ollama.tls=true"
+    #   - "traefik.http.routers.ollama.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.ollama.loadbalancer.passhostheader=true"
+    #   - "traefik.http.routers.ollama.middlewares=compresstraefik"
+    #   - "traefik.http.middlewares.compresstraefik.compress=true"
+  - "traefik.http.middlewares.ollama-ipwhitelist.ipwhitelist.sourcerange=${OLLAMA_IP_WHITELIST}"
+      - "traefik.http.routers.ollama.middlewares=ollama-ipwhitelist@docker"
+      - "traefik.docker.network=traefik-network"
+    restart: unless-stopped
+    depends_on:
+      traefik:
+        condition: service_healthy
+    # ports:
+      # - "11434:11434"
+
+  traefik:
+    image: ${TRAEFIK_IMAGE_TAG}
+    command:
+      - "--log.level=${TRAEFIK_LOG_LEVEL}"
+      - "--accesslog=true"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--ping=true"
+      - "--ping.entrypoint=ping"
+      - "--entryPoints.ping.address=:8082"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.ollama.address=:11434"
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+      - "--providers.docker.exposedByDefault=false"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme/acme.json"
+      - "--metrics.prometheus=true"
+      - "--metrics.prometheus.buckets=0.1,0.3,1.2,5.0"
+      - "--global.checkNewVersion=true"
+      - "--global.sendAnonymousUsage=false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - traefik-certificates:/etc/traefik/acme
+    networks:
+      - traefik-network
+    ports:
+      - "8880:80"
+      - "8443:443"
+    healthcheck:
+      test: ["CMD", "wget", "http://localhost:8082/ping","--spider"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`${TRAEFIK_HOSTNAME}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=8080"
+      - "traefik.http.routers.dashboard.tls=true"
+      - "traefik.http.routers.dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.services.dashboard.loadbalancer.passhostheader=true"
+      - "traefik.http.routers.dashboard.middlewares=authtraefik"
+      - "traefik.http.middlewares.authtraefik.basicauth.users=${TRAEFIK_BASIC_AUTH}"
+      - "traefik.http.routers.http-catchall.rule=HostRegexp(`{host:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=web"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+    restart: unless-stopped
