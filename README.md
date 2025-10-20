@@ -275,12 +275,6 @@ docker compose down
 docker compose down -v
 ```
 
----
-
-## 版本提示
-
-- 此專案包含備份檔：`docker-compose.yml.backup.20251020_085723`
-- 請以目前的 `docker-compose.yml` 為主；若需回滾，可參考備份版本。
 
 ---
 
