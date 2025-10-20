@@ -17,25 +17,42 @@
 
 ```mermaid
 flowchart TD
-  subgraph Internet["🌐 使用者 / 客戶端"]
-    Allowed["✅ 在白名單 IP 範圍"]
-    Denied["❌ 不在白名單"]
+  subgraph Clients["👥 客戶端"]
+    Client1["✅ 授權客戶端<br/>白名單 IP（您的電腦）"]
+    Client2["❌ 未授權客戶端<br/>非白名單 IP"]
   end
-
-  Allowed -->|HTTP(S) :8880/:8443| Traefik["🔀 Traefik (ports 80→8880, 443→8443)"]
-  Denied -->|HTTP :8880| Traefik
-
-  Traefik -->|Host(${TRAEFIK_HOSTNAME}) + TLS + BasicAuth| Dashboard["📊 Traefik Dashboard"]
-  Traefik -->|Host(${OLLAMA_HOSTNAME}) + TLS| WebUI["🖥️ WebUI"]
-  Traefik -->|web (HTTP) + IP 白名單| Ollama["🤖 Ollama API :11434"]
-
-  WebUI -->|HTTP :11434| Ollama
-
-  classDef ok fill:#e1ffe1,stroke:#00aa00,stroke-width:2px;
-  classDef warn fill:#fff4e1,stroke:#ff9900,stroke-width:2px;
-  classDef danger fill:#ffe1e1,stroke:#ff6666,stroke-width:2px;
-  class Traefik,Dashboard,WebUI,Ollama ok
-  class Denied danger
+    
+  Client1 -->|"HTTP Request<br/>http://your-server:8880/api/tags"| Port["🌐 Port 8880"]
+  Client2 -->|"HTTP Request<br/>http://your-server:8880/"| Port
+    
+  Port --> Traefik["🔀 Traefik 反向代理<br/>容器: traefik<br/>網路: traefik-network"]
+    
+  Traefik --> IPCheck{"🔐 IP 白名單檢查<br/>ollama-ipwhitelist middleware<br/><br/>白名單範圍?"}
+    
+  IPCheck -->|"✅ 白名單 IP<br/>通過檢查"| RouteMatch{"🛣️ 路由匹配<br/><br/>Rule: HostRegexp<br/>Priority: 100"}
+    
+  IPCheck -->|"❌ 非白名單 IP<br/>拒絕訪問"| Forbidden["⛔ 403 Forbidden<br/><br/>被中間件阻擋<br/>請求終止"]
+    
+  RouteMatch -->|"✅ 匹配成功<br/>優先級最高"| Forward["🔄 轉發到後端<br/><br/>目標: ollama@docker<br/>網路: traefik-network"]
+    
+  Forward --> Ollama["🤖 Ollama 服務<br/>容器: ollama<br/>網路: traefik-network<br/><br/>模型: llama3.1"]
+    
+  Ollama -->|"⚙️ 處理請求"| Process["📊 生成響應<br/><br/>GET /api/tags<br/>→ 返回模型列表"]
+    
+  Process -->|"200 OK<br/>Content-Type: application/json"| Success["✅ 成功響應<br/><br/>{<br/>  'models': [<br/>    'llama3.1:latest'<br/>  ]<br/>}"]
+    
+  Success -->|"通過 Traefik"| Client1
+  Forbidden -.->|"錯誤響應"| Client2
+    
+  style Client1 fill:#ccffcc,stroke:#00aa00,stroke-width:3px
+  style Client2 fill:#ffcccc,stroke:#aa0000,stroke-width:3px
+  style Traefik fill:#fff4e1,stroke:#ff9900,stroke-width:2px
+  style IPCheck fill:#ffe1e1,stroke:#ff6666,stroke-width:2px
+  style RouteMatch fill:#e1ffe1,stroke:#00aa00,stroke-width:2px
+  style Forward fill:#e1f5ff,stroke:#0099ff,stroke-width:2px
+  style Ollama fill:#ffe1f5,stroke:#cc00cc,stroke-width:2px
+  style Success fill:#ccffcc,stroke:#00aa00,stroke-width:3px
+  style Forbidden fill:#ff9999,stroke:#cc0000,stroke-width:3px
 ```
 
 ---
