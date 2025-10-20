@@ -87,7 +87,7 @@ services:
     #   - "traefik.http.services.ollama.loadbalancer.passhostheader=true"
     #   - "traefik.http.routers.ollama.middlewares=compresstraefik"
     #   - "traefik.http.middlewares.compresstraefik.compress=true"
-  - "traefik.http.middlewares.ollama-ipwhitelist.ipwhitelist.sourcerange=${OLLAMA_IP_WHITELIST}"
+      - "traefik.http.middlewares.ollama-ipwhitelist.ipwhitelist.sourcerange=${OLLAMA_IP_WHITELIST}"
       - "traefik.http.routers.ollama.middlewares=ollama-ipwhitelist@docker"
       - "traefik.docker.network=traefik-network"
     restart: unless-stopped
